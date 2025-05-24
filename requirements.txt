@@ -1,0 +1,13 @@
+opencv-python
+imagehash
+scikit-image
+streamlit
+pandas
+matplotlib
+seaborn
+streamlit
+numpy<2
+torch
+torchvision
+torchaudio
+scikit-learn
