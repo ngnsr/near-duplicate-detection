@@ -6,19 +6,33 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from utils.methods import group_by_color, group_by_phash, group_by_ssim, group_by_orb, group_by_cnn
+from utils.methods import group_by_color, group_by_ahash, group_by_ssim, group_by_orb, group_by_cnn, compare_by_color, compare_by_ahash, compare_by_ssim, compare_by_orb, compare_by_cnn
 from utils.benchmark import benchmark_methods
 
 # --- Streamlit UI ---
 st.title("Image Similarity Detection System")
 
 # Upload Section
-upload_type = st.radio("Choose upload type:", ("Individual Images", "Zip Archive"))
+upload_type = st.radio("Choose upload type:", ("Compare Two Images", "Individual Images", "Zip Archive"))
 image_paths = []
 temp_dir = "temp_images"
 os.makedirs(temp_dir, exist_ok=True)
 
-if upload_type == "Individual Images":
+if upload_type == "Compare Two Images":
+    col1, col2 = st.columns(2)
+    with col1:
+        img1 = st.file_uploader("Upload First Image", type=["jpg", "png"], key="img1")
+    with col2:
+        img2 = st.file_uploader("Upload Second Image", type=["jpg", "png"], key="img2")
+    if img1 and img2:
+        img1_path = os.path.join(temp_dir, img1.name)
+        img2_path = os.path.join(temp_dir, img2.name)
+        with open(img1_path, "wb") as f:
+            f.write(img1.getbuffer())
+        with open(img2_path, "wb") as f:
+            f.write(img2.getbuffer())
+        image_paths = [img1_path, img2_path]
+elif upload_type == "Individual Images":
     uploaded_files = st.file_uploader("Upload images", type=["jpg", "png"], accept_multiple_files=True)
     if uploaded_files:
         for uploaded_file in uploaded_files:
@@ -33,37 +47,42 @@ else:
             zip_ref.extractall(temp_dir)
         image_paths = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if f.lower().endswith(('.jpg', '.png'))]
 
-# Ground Truth Upload
-ground_truth_file = st.file_uploader("Upload ground truth CSV (optional)", type="csv")
-ground_truth_df = pd.read_csv(ground_truth_file) if ground_truth_file else None
-
 # Parameters
 st.sidebar.header("Threshold Settings")
 hist_threshold = st.sidebar.slider("Color Histogram Threshold", 0.0, 1.0, 0.9)
-phash_threshold = st.sidebar.slider("pHash Max Distance", 0, 64, 10)
+ahash_threshold = st.sidebar.slider("aHash Max Distance", 0, 64, 10)
 ssim_threshold = st.sidebar.slider("SSIM Threshold", 0.0, 1.0, 0.9)
 orb_match_threshold = st.sidebar.slider("ORB Match Threshold", 0, 200, 50)
 cnn_threshold = st.sidebar.slider("CNN Similarity Threshold", 0.0, 1.0, 0.9)
 
-method = st.selectbox("Select Method", ["Color Histogram", "pHash", "SSIM", "ORB", "CNN"])
-run_benchmark = st.checkbox("Run Benchmark for All Methods")
+method = st.selectbox("Select Method", ["Color Histogram", "aHash", "SSIM", "ORB", "CNN"])
+run_benchmark = st.checkbox("Run Benchmark for All Methods", disabled=upload_type == "Compare Two Images")
 
-# Method Map
+# Method Map for Grouping
 method_map = {
     "Color Histogram": group_by_color,
-    "pHash": group_by_phash,
+    "aHash": group_by_ahash,
     "SSIM": group_by_ssim,
     "ORB": group_by_orb,
-    "CNN": group_by_cnn,
+    "CNN": group_by_cnn
+}
+
+# Method Map for Comparing Two Images
+compare_method_map = {
+    "Color Histogram": compare_by_color,
+    "aHash": compare_by_ahash,
+    "SSIM": compare_by_ssim,
+    "ORB": compare_by_orb,
+    "CNN": compare_by_cnn
 }
 
 # Method Parameters
 method_kwargs = {
     "Color Histogram": {"threshold": hist_threshold},
-    "pHash": {"max_distance": phash_threshold},
+    "aHash": {"max_distance": ahash_threshold},
     "SSIM": {"ssim_threshold": ssim_threshold},
     "ORB": {"match_threshold": orb_match_threshold},
-    "CNN": {"threshold": cnn_threshold},
+    "CNN": {"threshold": cnn_threshold}
 }
 
 # --- Process Images ---
@@ -71,7 +90,27 @@ if st.button("Process Images") and image_paths:
     st.write("Processing images...")
     progress_bar = st.progress(0)
 
-    if not run_benchmark:
+    if upload_type == "Compare Two Images":
+        func = compare_method_map[method]
+        kwargs = method_kwargs[method]
+        with st.spinner(f"Running {method}..."):
+            start_time = time.time()
+            similarity = func(image_paths[0], image_paths[1], **kwargs)
+            execution_time = time.time() - start_time
+
+        st.write(f"**Execution Time**: {execution_time:.3f} seconds")
+        st.write(f"**Similarity Score**: {similarity:.3f}")
+        if method == "aHash":
+            st.write("Images are similar" if similarity <= ahash_threshold else "Images are different")
+        else:
+            st.write("Images are similar" if similarity >= method_kwargs[method].get("threshold", 0.9) else "Images are different")
+        
+        cols = st.columns(2)
+        cols[0].image(image_paths[0], caption="Image 1", use_container_width=True)
+        cols[1].image(image_paths[1], caption="Image 2", use_container_width=True)
+        progress_bar.progress(100)
+
+    elif not run_benchmark:
         func = method_map[method]
         kwargs = method_kwargs[method]
         with st.spinner(f"Running {method}..."):
@@ -98,26 +137,9 @@ if st.button("Process Images") and image_paths:
         for name, data in results.items():
             groups = data["groups"]
             time_taken = data["time"]
-            precision = "N/A"
-
-            if ground_truth_df is not None:
-                ground_truth_pairs = set(
-                    tuple(sorted((row["image_1"], row["image_2"])))
-                    for _, row in ground_truth_df.iterrows()
-                    if row["is_duplicate"]
-                )
-                predicted_pairs = set()
-                for group in groups:
-                    for i in range(len(group)):
-                        for j in range(i + 1, len(group)):
-                            predicted_pairs.add(tuple(sorted((group[i], group[j]))))
-                tp = len(predicted_pairs & ground_truth_pairs)
-                precision = 100 * tp / len(predicted_pairs) if predicted_pairs else 0
-
             rows.append({
                 "Method": name,
                 "Time (sec)": round(time_taken, 2),
-                "Precision (%)": precision,
                 "Num Groups": len(groups)
             })
 
@@ -131,14 +153,6 @@ if st.button("Process Images") and image_paths:
         ax.set_title("Execution Time Comparison")
         st.pyplot(fig)
         plt.close()
-
-        if ground_truth_df is not None:
-            fig, ax = plt.subplots()
-            sns.barplot(x="Method", y="Precision (%)", data=results_df, ax=ax)
-            ax.set_title("Precision Comparison")
-            st.pyplot(fig)
-            plt.close()
-
         progress_bar.progress(100)
 
 # Clean-up
