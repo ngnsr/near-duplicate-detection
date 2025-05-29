@@ -11,14 +11,9 @@ from torchvision.models import resnet18
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List
 
-from PIL import Image
-import cv2
-import numpy as np
-from imagehash import average_hash
-from skimage.metrics import structural_similarity as ssim
-import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
+import networkx as nx
+import matplotlib.pyplot as plt
+import os
 
 def compare_by_color(img_path1, img_path2, threshold=0.9):
     img1 = cv2.imread(img_path1)
@@ -133,18 +128,23 @@ def group_by_ahash(image_paths, max_distance=10):
     return groups
 
 # SSIM
-def group_by_ssim(image_paths, ssim_threshold=0.9):
+def group_by_ssim(image_paths, ssim_threshold=0.9, resize_dim=(224, 224)):
+    images = {
+        path: cv2.resize(cv2.imread(path, cv2.IMREAD_GRAYSCALE), resize_dim)
+        for path in image_paths
+    }
     similar_pairs = []
     for i, path1 in enumerate(image_paths):
-        img1 = cv2.imread(path1, cv2.IMREAD_GRAYSCALE)
+        img1 = images[path1]
         for path2 in image_paths[i+1:]:
-            img2 = cv2.imread(path2, cv2.IMREAD_GRAYSCALE)
+            img2 = images[path2]
             try:
                 score = ssim(img1, img2)
                 if score > ssim_threshold:
                     similar_pairs.append((path1, path2))
             except Exception:
                 continue
+
     return _group_from_pairs(similar_pairs)
 
 def compute_orb_descriptors(image_path: str, max_size: int = 300, nfeatures: int = 300) -> tuple:

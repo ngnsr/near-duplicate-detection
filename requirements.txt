@@ -5,7 +5,6 @@ streamlit
 pandas
 matplotlib
 seaborn
-streamlit
 numpy<2
 torch
 torchvision

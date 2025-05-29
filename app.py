@@ -102,6 +102,8 @@ if st.button("Process Images") and image_paths:
         st.write(f"**Similarity Score**: {similarity:.3f}")
         if method == "aHash":
             st.write("Images are similar" if similarity <= ahash_threshold else "Images are different")
+        elif method == "ORB":
+            st.write("Images are similar" if similarity >= orb_match_threshold else "Images are different")
         else:
             st.write("Images are similar" if similarity >= method_kwargs[method].get("threshold", 0.9) else "Images are different")
         
